@@ -15,7 +15,7 @@ st.set_page_config(
 def load_data():
     # In real app: df = pd.read_csv("CASE_STUDY_DATA.csv")
     # This structure matches your provided file
-    df = pd.read_csv('Data.csv',delimiter='|')
+    df = pd.read_csv('data.csv',delimiter='|')
     # Convert European decimal format (comma) to standard (dot)
     df['metric_value'] = df['metric_value'].astype(str).str.replace(',', '.').astype(float)
     # Convert Excel serial date to datetime (Excel dates start from 1899-12-30)
