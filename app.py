@@ -10,6 +10,31 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Define consistent color palette for countries
+# Using a diverse, accessible color palette
+COUNTRY_COLORS = {
+    'Country_1': '#1f77b4',   # Blue
+    'Country_2': '#ff7f0e',   # Orange
+    'Country_3': '#2ca02c',   # Green
+    'Country_4': '#d62728',   # Red
+    'Country_5': '#9467bd',   # Purple
+    'Country_6': '#8c564b',   # Brown
+    'Country_7': '#e377c2',   # Pink
+    'Country_8': '#7f7f7f',   # Gray
+    'Country_9': '#bcbd22',   # Olive
+    'Country_10': '#17becf',  # Cyan
+    'Country_11': '#ff9896',  # Light Red
+    'Country_12': '#aec7e8',  # Light Blue
+    'Country_13': '#ffbb78',  # Light Orange
+    'Country_14': '#98df8a',  # Light Green
+    'Country_15': '#c5b0d5',  # Light Purple
+    'Total': '#000000'        # Black for Total
+}
+
+def get_country_color(country):
+    """Get the assigned color for a country."""
+    return COUNTRY_COLORS.get(country, '#808080')
+
 # 1. Load Data (Simulated loading of your CSV)
 @st.cache_data
 def load_data():
@@ -163,44 +188,27 @@ def calculate_totals(df):
             })
     
     # Second pass: Calculate Growth Index for Total using Total orders history
-    total_orders_df = pd.DataFrame([
-        {'date_month': date, 'metric_value': orders}
+    # Create a temporary dataframe with Total orders to calculate growth
+    total_orders_temp = pd.DataFrame([
+        {
+            'country': 'Total',
+            'date_month': date,
+            'metric': 'Orders',
+            'metric_value': orders
+        }
         for date, orders in sorted(total_orders_by_date.items())
     ])
     
-    # Calculate MoM growth for Total
-    total_orders_df['mom_growth'] = total_orders_df['metric_value'].pct_change() * 100
+    # Reuse calculate_weighted_growth function to compute Growth Index for Total
+    total_with_growth = calculate_weighted_growth(total_orders_temp)
     
-    # Calculate weighted growth index for Total
-    for idx, row in total_orders_df.iterrows():
-        current_date = row['date_month']
-        
-        # Get the last 12 months of growth data
-        lookback_data = total_orders_df[
-            (total_orders_df['date_month'] <= current_date) & 
-            (total_orders_df['date_month'] > current_date - pd.DateOffset(months=12))
-        ].copy()
-        
-        if len(lookback_data) < 2:
-            continue
-        
-        lookback_data = lookback_data.dropna(subset=['mom_growth'])
-        
-        if len(lookback_data) == 0:
-            continue
-        
-        # Linear weights: 1, 2, 3, ..., n
-        n_months = len(lookback_data)
-        weights = list(range(1, n_months + 1))
-        
-        weighted_growth = (lookback_data['mom_growth'].values * weights).sum() / sum(weights)
-        
-        total_records.append({
-            'country': 'Total',
-            'date_month': current_date,
-            'metric': 'Growth Index',
-            'metric_value': weighted_growth / 100  # Convert to decimal
-        })
+    # Extract only the Growth Index records for Total
+    total_growth_records = total_with_growth[
+        (total_with_growth['country'] == 'Total') & 
+        (total_with_growth['metric'] == 'Growth Index')
+    ].to_dict('records')
+    
+    total_records.extend(total_growth_records)
     
     # Third pass: Calculate other weighted metrics
     for date in dates:
@@ -410,7 +418,10 @@ country_clusters['Total'] = '🌍 Total'
 
 st.title("Executive Performance Overview")
 
-# 1. METRICS SUMMARY TABLE (moved to top)
+# ------------------------------------------------------------------------------------------------
+# 1. METRICS SUMMARY TABLE
+# ------------------------------------------------------------------------------------------------
+
 st.subheader("📊 Latest Period Metrics by Country")
 
 # Add toggle for comparison type
@@ -703,7 +714,10 @@ if not latest_period_df.empty:
 else:
     st.info("No data available for the selected filters.")
 
-# 2. BUBBLE CHART - Metric Relationships
+# ------------------------------------------------------------------------------------------------
+# 2. METRIC RELATIONSHIP EXPLORER
+# ------------------------------------------------------------------------------------------------
+
 st.subheader("🎯 Metric Relationship Explorer")
 
 # Metric selectors in columns
@@ -852,7 +866,10 @@ if not latest_period_df.empty:
 else:
     st.info("No data available for bubble chart.")
 
+# ------------------------------------------------------------------------------------------------
 # 3. METRIC TRENDLINE ANALYSIS - 2x3 Grid
+# ------------------------------------------------------------------------------------------------
+
 st.subheader("📈 Metric Trendlines - All Metrics View")
 
 # Create filter options
@@ -873,48 +890,58 @@ if view_type == "Total":
 elif view_type == "Cluster":
     st.markdown("**Select Market Size Cluster:**")
     
-    # Get list of clusters (excluding Total)
-    available_clusters = sorted([c for c in set(country_clusters.values()) if c != '🌍 Total'])
+    # Define cluster order explicitly
+    cluster_order = ['⭐ Star (50K+)', '🔵 L (20K-50K)', '🟢 M (5K-20K)', '🟡 S (<5K)']
+    
+    # Get list of clusters that actually exist in the data (excluding Total)
+    available_clusters = [c for c in cluster_order if c in set(country_clusters.values())]
+    
+    # Initialize session state for cluster selection
+    if 'selected_cluster' not in st.session_state:
+        st.session_state.selected_cluster = available_clusters[0] if available_clusters else None
     
     # Create tile buttons for clusters
     cols = st.columns(len(available_clusters))
-    selected_cluster = None
     
     for idx, cluster in enumerate(available_clusters):
         with cols[idx]:
+            # Check if this cluster is currently selected
+            is_selected = (st.session_state.selected_cluster == cluster)
+            
             # Use button style to create tiles
             if st.button(
                 cluster,
                 key=f"cluster_btn_{idx}",
                 use_container_width=True,
-                type="primary" if idx == 0 else "secondary"
+                type="primary" if is_selected else "secondary"
             ):
-                selected_cluster = cluster
-    
-    # Default to first cluster if none selected
-    if selected_cluster is None:
-        selected_cluster = available_clusters[0]
-    
-    # Store selection in session state
-    if 'selected_cluster' not in st.session_state:
-        st.session_state.selected_cluster = available_clusters[0]
-    
-    # Update session state when button is clicked
-    if selected_cluster:
-        st.session_state.selected_cluster = selected_cluster
+                st.session_state.selected_cluster = cluster
+                st.rerun()
     
     # Get all countries in the selected cluster
     selected_countries_trend = [
         country for country, cluster in country_clusters.items() 
         if cluster == st.session_state.selected_cluster and country != 'Total'
     ]
+    
+    # Display country color legend for this cluster with better styling
     st.caption(f"Showing {len(selected_countries_trend)} countries in {st.session_state.selected_cluster}")
+    
+    # Create a styled legend with country color boxes
+    legend_html = '<div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; margin-bottom: 15px;">'
+    for country in sorted(selected_countries_trend):
+        color = get_country_color(country)
+        legend_html += f'<div style="display: flex; align-items: center; gap: 6px; padding: 4px 10px; background: #f8f9fa; border-radius: 6px; border: 1px solid #e0e0e0;"><div style="width: 16px; height: 16px; background-color: {color}; border-radius: 3px;"></div><span style="font-size: 13px; font-weight: 500;">{country}</span></div>'
+    legend_html += '</div>'
+    st.markdown(legend_html, unsafe_allow_html=True)
     
 else:  # Country view
     st.markdown("**Select Countries:**")
     
-    # Get list of countries (excluding Total)
-    available_countries = sorted([c for c in country_clusters.keys() if c != 'Total'])
+    # Get list of countries (excluding Total) and sort numerically by country number
+    available_countries = [c for c in country_clusters.keys() if c != 'Total']
+    # Sort by the numeric part of the country name (e.g., Country_1 -> 1)
+    available_countries = sorted(available_countries, key=lambda x: int(x.split('_')[1]) if '_' in x else 0)
     
     # Initialize session state for country selection
     if 'selected_countries_tiles' not in st.session_state:
@@ -950,7 +977,18 @@ else:  # Country view
     
     selected_countries_trend = st.session_state.selected_countries_tiles
     
-    if not selected_countries_trend:
+    # Display color legend for selected countries
+    if selected_countries_trend:
+        st.caption(f"Selected {len(selected_countries_trend)} countries:")
+        
+        # Create a styled legend with country color boxes
+        legend_html = '<div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; margin-bottom: 15px;">'
+        for country in sorted(selected_countries_trend):
+            color = get_country_color(country)
+            legend_html += f'<div style="display: flex; align-items: center; gap: 6px; padding: 4px 10px; background: #f8f9fa; border-radius: 6px; border: 1px solid #e0e0e0;"><div style="width: 16px; height: 16px; background-color: {color}; border-radius: 3px;"></div><span style="font-size: 13px; font-weight: 500;">{country}</span></div>'
+        legend_html += '</div>'
+        st.markdown(legend_html, unsafe_allow_html=True)
+    else:
         st.caption("⚠️ Please select at least one country")
 
 # Create 2x3 grid of charts
@@ -1037,10 +1075,9 @@ if selected_countries_trend:
                             y=country_data['metric_value'],
                             mode='lines+markers',
                             name=country,
-                            line=dict(width=2),
-                            marker=dict(size=4),
-                            # Show legend on top-right chart, but only if more than one country
-                            showlegend=(metric_idx == 2 and len(selected_countries_trend) > 1)
+                            line=dict(width=2, color=get_country_color(country)),
+                            marker=dict(size=4, color=get_country_color(country)),
+                            showlegend=False  # Legend removed - colors shown on tiles
                         ))
                 
                 # Update layout for compact view
@@ -1055,15 +1092,7 @@ if selected_countries_trend:
                     yaxis=dict(rangemode='tozero'),  # Fix y-axis to start at 0
                     hovermode='x unified',
                     height=280,
-                    margin=dict(l=50, r=10, t=40, b=30),
-                    legend=dict(
-                        orientation="v",
-                        yanchor="top",
-                        y=1.0,
-                        xanchor="left",
-                        x=1.02,
-                        font=dict(size=9)
-                    )
+                    margin=dict(l=50, r=10, t=40, b=30)
                 )
                 
                 st.plotly_chart(fig, use_container_width=True, key=f'chart_{metric}')
